@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Karnaugh Map Solver</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 30px; }
+    .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { text-align: center; font-size: 28px; margin-bottom: 25px; color: #222; }
+    .input-section { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 15px; }
+    label { font-size: 14px; color: #555; }
+    input[type="text"] { flex: 1; padding: 10px 14px; font-size: 15px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+    input[type="text"]:focus { border-color: #4CAF50; }
+    select { padding: 10px 14px; font-size: 15px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+    button { padding: 10px 24px; background: #4CAF50; color: white; font-size: 15px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; }
+    button:hover { background: #43a047; }
+    .hint { font-size: 12px; color: #999; margin-bottom: 20px; }
+    .result-box { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; padding: 14px 20px; margin-bottom: 20px; text-align: center; }
+    .result-box span { font-size: 20px; font-weight: bold; color: #2e7d32; }
+    .error-box { background: #ffebee; border: 1px solid #ef9a9a; border-radius: 8px; padding: 14px 20px; margin-bottom: 20px; text-align: center; color: #c62828; }
+    h2 { font-size: 18px; margin-bottom: 12px; color: #333; }
+    .kmap-wrap { overflow-x: auto; margin-bottom: 30px; }
+    table { border-collapse: collapse; margin: 0 auto; }
+    th { padding: 10px 18px; background: #f0f0f0; font-size: 14px; border: 1px solid #ddd; }
+    td { padding: 0; border: 1px solid #ddd; }
+    .cell { width: 70px; height: 55px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; cursor: default; }
+    .cell-1 { background: #90EE90; color: #1b5e20; }
+    .cell-0 { background: #FFB6C1; color: #880e4f; }
+    .tt-wrap { overflow-x: auto; }
+    .tt-wrap table { width: 100%; }
+    .tt-wrap th { background: #37474f; color: white; }
+    .tt-wrap td { text-align: center; padding: 8px; font-size: 14px; }
+    .tt-wrap tr:nth-child(even) td { background: #f9f9f9; }
+    .tt-wrap tr:nth-child(odd) td { background: white; }
+    .output-1 { color: #2e7d32; font-weight: bold; }
+    .output-0 { color: #c62828; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Karnaugh Map Solver</h1>
+
+  <div class="input-section">
+    <label>Variables:</label>
+    <select id="numVars">
+      <option value="2">2 vars (A, B)</option>
+      <option value="3">3 vars (A, B, C)</option>
+      <option value="4">4 vars (A, B, C, D)</option>
+    </select>
+    <label>Expression:</label>
+    <input type="text" id="expr" value="A & B | ~A & ~B" />
+    <button onclick="solve()">Solve</button>
+  </div>
+  <p class="hint">Use: &amp; = AND &nbsp;|&nbsp; | = OR &nbsp;|&nbsp; ~ = NOT &nbsp;|&nbsp; Example: A &amp; B | ~A &amp; C</p>
+
+  <div id="resultBox" class="result-box hidden">
+    Minimized expression: <span id="minimized"></span>
+  </div>
+  <div id="errorBox" class="error-box hidden"></div>
+
+  <div id="kmapSection" class="hidden">
+    <h2>K-Map</h2>
+    <div class="kmap-wrap">
+      <div id="kmap"></div>
+    </div>
+  </div>
+
+  <div id="ttSection" class="hidden">
+    <h2>Truth Table</h2>
+    <div class="tt-wrap">
+      <table id="ttable"></table>
+    </div>
+  </div>
+</div>
+
+<script>
+async function solve() {
+  const expr = document.getElementById('expr').value.trim();
+  const numVars = document.getElementById('numVars').value;
+  if (!expr) return;
+
+  const res = await fetch('/solve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expression: expr, num_vars: numVars })
+  });
+
+  const data = await res.json();
+
+  document.getElementById('resultBox').classList.add('hidden');
+  document.getElementById('errorBox').classList.add('hidden');
+  document.getElementById('kmapSection').classList.add('hidden');
+  document.getElementById('ttSection').classList.add('hidden');
+
+  if (data.error) {
+    document.getElementById('errorBox').textContent = 'Error: ' + data.error;
+    document.getElementById('errorBox').classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('minimized').textContent = data.minimized;
+  document.getElementById('resultBox').classList.remove('hidden');
+
+  drawKmap(data.table, data.num_vars);
+  drawTruthTable(data.table, data.num_vars);
+
+  document.getElementById('kmapSection').classList.remove('hidden');
+  document.getElementById('ttSection').classList.remove('hidden');
+}
+
+function drawKmap(table, numVars) {
+  const gray4 = [0, 1, 3, 2];
+  let html = '<table>';
+
+  if (numVars == 2) {
+    html += '<tr><th></th><th>B=0</th><th>B=1</th></tr>';
+    for (let a = 0; a < 2; a++) {
+      html += `<tr><th>A=${a}</th>`;
+      for (let b = 0; b < 2; b++) {
+        const val = table[a * 2 + b][2];
+        html += `<td><div class="cell cell-${val}">${val}</div></td>`;
+      }
+      html += '</tr>';
+    }
+  } else if (numVars == 3) {
+    html += '<tr><th></th><th>BC=00</th><th>BC=01</th><th>BC=11</th><th>BC=10</th></tr>';
+    for (let a = 0; a < 2; a++) {
+      html += `<tr><th>A=${a}</th>`;
+      for (const bc of gray4) {
+        const val = table[a * 4 + bc][3];
+        html += `<td><div class="cell cell-${val}">${val}</div></td>`;
+      }
+      html += '</tr>';
+    }
+  } else {
+    html += '<tr><th></th><th>CD=00</th><th>CD=01</th><th>CD=11</th><th>CD=10</th></tr>';
+    for (const ab of gray4) {
+      const abStr = ['00','01','11','10'][gray4.indexOf(ab)];
+      html += `<tr><th>AB=${abStr}</th>`;
+      for (const cd of gray4) {
+        const val = table[ab * 4 + cd][4];
+        html += `<td><div class="cell cell-${val}">${val}</div></td>`;
+      }
+      html += '</tr>';
+    }
+  }
+
+  html += '</table>';
+  document.getElementById('kmap').innerHTML = html;
+}
+
+function drawTruthTable(table, numVars) {
+  const varNames = numVars == 2 ? ['A','B'] :
+                   numVars == 3 ? ['A','B','C'] : ['A','B','C','D'];
+  let html = '<tr>';
+  for (const v of varNames) html += `<th>${v}</th>`;
+  html += '<th>Output</th></tr>';
+
+  for (const row of table) {
+    html += '<tr>';
+    for (let i = 0; i < row.length - 1; i++) {
+      html += `<td>${row[i]}</td>`;
+    }
+    const out = row[row.length - 1];
+    html += `<td class="output-${out}">${out}</td></tr>`;
+  }
+
+  document.getElementById('ttable').innerHTML = html;
+}
+
+window.onload = solve;
+</script>
+</body>
+</html>
